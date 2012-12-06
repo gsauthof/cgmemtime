@@ -130,7 +130,7 @@ static void help(const char *prog)
   printf("Call: %s (OPTION)* PROGRAM (PROGRAM_OPTION)*\n"
       "\n"
       "Prints the high-water mark of resident set size (RSS) memory usage of"
-      "PROGRAM and all its ancestors.\n"
+      "PROGRAM and all its descendants.\n"
       "\n"
       "That means that memory usage is measured recursively and accumulatively.\n"
       "\n"
@@ -261,16 +261,16 @@ static int force_empty(const Options *opts)
 
 static int cleanup_cg(const Options *opts)
 {
+  int ret_fe = force_empty(opts);
   int ret = 0;
-  ret = force_empty(opts);
-  if (ret)
-    return -2;
   ret = rmdir(opts->sub_group);
   if (ret == -1) {
     fprintf(stderr, "Could not remove sub-cgroup %s: ", opts->sub_group);
     perror(0);
     return -1;
   }
+  if (ret_fe)
+    return -2;
   return 0;
 }
 
@@ -442,7 +442,7 @@ static int verify_tasks_empty(const Options *opts)
     return -1;
   if (*out) {
     fprintf(stderr,
-        "Child terminated but following ancestors are still running: %s\n",
+        "Child terminated but following descendants are still running: %s\n",
         out);
     return -2;
   }
