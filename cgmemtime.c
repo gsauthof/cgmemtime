@@ -19,6 +19,7 @@
 struct Options {
   bool help;
   bool machine_readable;
+  bool force_empty;
 
   bool setup_mode;
   char user[32];
@@ -105,6 +106,8 @@ static int parse_options(int argc, char **argv, Options *opts)
       next = GROUP;
     } else if (!strcmp(o, "--perm")) {
       next = PERM;
+    } else if (!strcmp(o, "--force-empty")) {
+      opts->force_empty = true;
     } else {
       break;
     }
@@ -138,6 +141,9 @@ static void help(const char *prog)
       "\t--root STR\troot of the configured hierachy (default: memory/cgmemtime)\n"
       "\t\ti.e. BASE/ROOT has to be writable\n"
       "\t\te.g. /sys/fs/cgroup/memory/cgmemtime has to be writable\n"
+      "\t--force-empty\t'call' force-empty before rmdir\n"
+      "\t\t (e.g. forces cleanup of cached pages)\n"
+      "\n"
       "\t--setup\tsetup mode (create sysfs hierachy under BASE)\n"
       "\t-u, --user STR\tuser name (default: root)\n"
       "\t-g, --group  STR\tgroup name (default: root)\n"
@@ -209,9 +215,56 @@ static int setup_cg(Options *opts)
   return 0;
 }
 
+static int echo(const char *out, const char *file)
+{
+  if (!out)
+    return -2;
+  size_t len = strlen(out);
+  if (!len)
+    return -5;
+  int fd = open(file, O_WRONLY);
+  if (fd == -1) {
+    fprintf(stderr, "Opening %s failed: ", file);
+    perror(0);
+    return -3;
+  }
+  ssize_t r = write(fd, out, len);
+  if (r == -1) {
+    fprintf(stderr, "Writing to %s failed: ", file);
+    perror(0);
+    return -1;
+  }
+  if (r != len) {
+    fprintf(stderr, "Wrote only %zd of %zu bytes ", r, len);
+    return -1;
+  }
+  int ret = close(fd);
+  if (ret == -1) {
+    fprintf(stderr, "Closing %s failed: ", file);
+    perror(0);
+    return -4;
+  }
+  return 0;
+}
+
+static int force_empty(const Options *opts)
+{
+  if (!opts->force_empty)
+    return 0;
+  char file[256] = {0};
+  snprintf(file, 256, "%s/memory.force_empty", opts->sub_group);
+  int ret = echo("0", file);
+  if (ret)
+    return -1;
+  return 0;
+}
+
 static int cleanup_cg(const Options *opts)
 {
   int ret = 0;
+  ret = force_empty(opts);
+  if (ret)
+    return -2;
   ret = rmdir(opts->sub_group);
   if (ret == -1) {
     fprintf(stderr, "Could not remove sub-cgroup %s: ", opts->sub_group);
@@ -242,38 +295,6 @@ static int store_cg_rss_highwater(const Options *opts, Output *output)
   if (ret)
     return -1;
   output->cg_rss_highwater = atoi(out);
-  return 0;
-}
-
-static int echo(const char *out, const char *file)
-{
-  if (!out)
-    return -2;
-  size_t len = strlen(out);
-  if (!len)
-    return -5;
-  int fd = open(file, O_WRONLY);
-  if (fd == -1) {
-    fprintf(stderr, "Opening %s failed: ", file);
-    perror(0);
-    return -3;
-  }
-  ssize_t r = write(fd, out, len);
-  if (r == -1) {
-    fprintf(stderr, "Writing to %s failed: ", file);
-    perror(0);
-    return -1;
-  }
-  if (r != len) {
-    fprintf(stderr, "Wrote only %zd of %zu bytes ", r, len);
-    return -1;
-  }
-  int ret = close(fd);
-  if (ret == -1) {
-    fprintf(stderr, "Closing %s failed: ", file);
-    perror(0);
-    return -4;
-  }
   return 0;
 }
 
@@ -498,8 +519,6 @@ static int setup_root(const Options *opts)
   }
   return 0;
 }
-
-// XXX memory.force_empty ?
 
 int main(int argc, char **argv)
 {
