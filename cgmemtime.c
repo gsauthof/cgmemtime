@@ -510,6 +510,13 @@ static int setup_root(const Options *opts)
     perror(0);
     return -3;
   }
+  // mkdir honors umask ...
+  ret = chmod(name, perm);
+  if (ret) {
+    fprintf(stderr, "Could not chmod %o %s: ", perm, name);
+    perror(0);
+    return -5;
+  }
   ret = chown(name, uid, gid);
   if (ret) {
     fprintf(stderr, "Could not chown %s (uid: %zd, gid: %zd): ",
