@@ -1,4 +1,5 @@
-
+// 2012, Georg Sauthoff <mail@georg.so>
+// GPLv3+
 
 #include <stdbool.h>
 #include <stdio.h>

@@ -1,3 +1,5 @@
+# 2012, Georg Sauthoff <mail@georg.so>
+# GPLv3+
 
 set -e
 set -u
