@@ -236,9 +236,9 @@ Groups for memory measurements.
   session, too. Memusg then sums the VMSize value of each process
   of that session up and returns the maximum when the session
   leader exits. Note, that this method is not reliable, because
-  child processes may be still alive after the session leader has
-  exited and they may also create new session during there runtime,
-  thus escaping the measuring via memusg.
+  child processes may still be alive after the session leader has
+  exited and they may also create new sessions during their runtime,
+  thus escaping the measurement via memusg.
 
 
 [mib]: http://en.wikipedia.org/wiki/Mebibyte
