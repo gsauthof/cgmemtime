@@ -179,6 +179,20 @@ Note that all the `cg*` commands can be replaces with combinations of
 
 ## Related tools
 
+There are also other tools available which measure memory usage
+of processes. One way to categorize them is a two-fold
+classification: tools that use polling and tools that don't.
+
+In that context - when you are only interested in the high-water
+usage - polling is the inferior approach. As described in
+previous sections, cgmemtine does not use polling. At the time of
+writing, I am not aware of any other tool that uses Linux Control
+Groups for memory measurements.
+
+### Non-Polling based tools
+
+#### Highwater measurements
+
 - [GNU time][gtime] - uses something like `wait4()` or `waitpid()` and
   `getrusage()`, thus on systems where available it is able to
   display the high-water RSS usage of a single child process,
@@ -189,11 +203,42 @@ Note that all the `cg*` commands can be replaces with combinations of
   monitor mode that displays stats for all exiting processes. But
   the taskstats API is kind of cumbersome to use and on current
   kernels only accessible as root.
-- [memtime][memtime] - Uses polling of `/proc` to measure high-water
-  RSS/VMEM usage of a child. Polling is in general a sub-optimal
-  solution (e.g. short-running processes are not accurately
-  measured, it wastes resources etc.). memtime is not maintained
-  and has 64 Bit issues (last release 2002).
+
+#### Snapshot measurements
+
+- [smem][smem] - Tool written in Python that analyses proc files
+  like `/proc/$$/smaps` and generates a memory usage report of
+  one ore multiple processes for one point in time. It is designed
+  to provide a system-wide view, but one can also filter processes
+  (or even loaded libraries) by various criteria. Smem distributes
+  shared memory between all dependent processes (the result is
+  called proportional set size - PSS - of a process). It does not
+  take swapped-out memory into account.
+
+### Polling based tools
+
+- [memtime][memtime] - Uses polling of `/proc/$PID/stat` to
+  measure high-water RSS/VMEM usage of a child. It supports Linux
+  and Solaris styles of `/proc`.  Polling is in general a
+  sub-optimal solution (e.g. short-running processes are not
+  accurately measured, it wastes resources etc.). memtime is not
+  maintained and has 64 Bit issues (last release 2002).
+- [tmem][tmem] - Polls `/proc/$PID/status`, thus has access to
+  more detailed memory measures, e.g.  VmPeak, VmSize, VmLck,
+  VmPin, VmHWM, VmRSS, VmData, VmStk, VmExe, VmLib, VMPTE and
+  VMSwap.
+- [memusg][memusg] - Python script that polls the VmSize values
+  of a group of processes via the command `ps` and displays its
+  high-water mark.  That means that it forks/execs `ps` and parses
+  its output 10 times a second. For a given command line it creates
+  a new session (via setsid()) and executes it in that session.
+  Thus, children of the watched process are likely part of that
+  session, too. Memusg then sums the VMSize value of each process
+  of that session up and returns the maximum when the session
+  leader exits. Note, that this method is not reliable, because
+  child processes may be still alive after the session leader has
+  exited and they may also create new session during there runtime,
+  thus escaping the measuring via memusg.
 
 
 [mib]: http://en.wikipedia.org/wiki/Mebibyte
@@ -205,6 +250,7 @@ Note that all the `cg*` commands can be replaces with combinations of
 [gtime]: http://www.gnu.org/software/time/
 [tstime]: https://bitbucket.org/gsauthof/tstime
 [memtime]: http://www.update.uu.se/~johanb/memtime/
-
-
+[tmem]: http://locklessinc.com/articles/memory_usage/
+[smem]: http://www.selenic.com/smem/
+[memusg]: https://github.com/jhclark/memusg
 
