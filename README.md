@@ -1,4 +1,4 @@
-cgmemtime measures the high-water RSS memory usage of a process
+cgmemtime measures the high-water RSS+CACHE memory usage of a process
 and its descendant processes.
 
 To be able to do so it puts the process into its own
@@ -18,7 +18,7 @@ cgmemtime is the tool to answer such questions.
 
 (It also measures the runtime.)
 
-Date: 2012-12-06
+Date: 2013-08-23
 
 ## Usage
 
@@ -90,7 +90,7 @@ Don't hesitate to mail feedback (comments, questions, ...) to:
 
 ## Accuracy
 
-The reported high-water RSS usage values are as accurate as the
+The reported high-water RSS+CACHE usage values are as accurate as the
 `usage_in_bytes` value exported by the cgroup memory resource
 controller.
 
@@ -111,6 +111,25 @@ memory usage information.
 
 Doing some tests with e.g. `./testa` the reported values seem to
 be exact enough, though.
+
+## Limitations
+
+The `usage_in_bytes` meassure reports the sum of RSS and CACHE
+usage.  Thus, you can't meassure the highwater RSS-without-CACHE
+usage. In a program that does a lot of IO the CACHE part then
+dominates the highwater RSS+CACHE value.
+
+For example:
+
+    $ cgmemtime dd if=test.img | dd of=out
+    # vs.
+    $ cgmemtime dd if=test.img of=out
+
+(for a large test.img the 2nd command has a large RSS+CACHE
+highwater value)
+
+Currently, I am not aware of a cgroup way to just derive the
+RSS-only highwater mark.
 
 ## Manually testing cgroups
 

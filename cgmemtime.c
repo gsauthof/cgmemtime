@@ -130,8 +130,8 @@ static void help(const char *prog)
 {
   printf("Call: %s (OPTION)* PROGRAM (PROGRAM_OPTION)*\n"
       "\n"
-      "Prints the high-water mark of resident set size (RSS) memory usage of"
-      "PROGRAM and all its descendants.\n"
+      "Prints the high-water mark of resident set size (RSS)\n"
+      "and CACHE memory usage of PROGRAM and all its descendants.\n"
       "\n"
       "That means that memory usage is measured recursively and accumulatively.\n"
       "\n"
@@ -403,7 +403,7 @@ static int pretty_print(const Output *out)
   fprintf(stderr, "Child high-water RSS                    : %10zu KiB\n",
       out->child_rss_highwater/1024
       );
-  fprintf(stderr, "Recursive and accumulated high-water RSS: %10zu KiB\n",
+  fprintf(stderr, "Recursive and acc. high-water RSS+CACHE : %10zu KiB\n",
       out->cg_rss_highwater/1024
       );
   return 0;
