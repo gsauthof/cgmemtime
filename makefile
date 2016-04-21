@@ -1,5 +1,5 @@
 
-CFLAGS = -g -std=gnu99 -Wall -Wno-missing-braces
+CFLAGS = -g -std=gnu11 -Wall -Wno-missing-braces
 
 
 EXEC = cgmemtime testa
@@ -16,3 +16,7 @@ clean:
 	rm -f $(TEMP)
 
 
+.PHONY: check
+
+check:
+	bash test.sh

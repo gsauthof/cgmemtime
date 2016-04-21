@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -295,7 +296,14 @@ static int store_cg_rss_highwater(const Options *opts, Output *output)
   int ret = cat(file, out, 32);
   if (ret)
     return -1;
-  output->cg_rss_highwater = atoi(out);
+  static_assert(sizeof(unsigned long) == sizeof(size_t), "test if strtoul is sufficient");
+  errno = 0;
+  output->cg_rss_highwater = strtoul(out, 0, 10);
+  if (errno) {
+    fprintf(stderr, "Cannot interpret %s as integer: ", file);
+    perror(0);
+    return -1;
+  }
   return 0;
 }
 
