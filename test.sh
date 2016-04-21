@@ -34,7 +34,7 @@ test_simple()
 {
   for a in 4 5; do
   x=`$CGMEMTIME -t $TESTA x 10 2>&1 | grep ';' | cut -d';' -f $a`
-  if [ $((x/1024)) -ne 10 ]; then
+  if [ $((x/1024)) -lt 10 -o $((x/1024)) -gt 11 ]; then
     echo -n "Not 10 MiB (x=$x, a=$a)"
     return 1
   fi
@@ -47,7 +47,7 @@ test_accum()
   o=`$CGMEMTIME -t $TESTA x 10 20 30 40 2>&1 | grep ';'`
  
   x=`echo $o | cut -d';' -f 4`
-  if [ $((x/1024)) -ne 10 ]; then
+  if [ $((x/1024)) -lt 10 -o $((x/1024)) -gt 11 ]; then
     echo -n "Not 10 MiB (x=$x)"
     return 1
   fi
