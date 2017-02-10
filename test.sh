@@ -62,7 +62,7 @@ test_accum()
 test_wall()
 {
   x=`$CGMEMTIME -t sleep 3 2>&1 | grep ';' | cut -d';' -f 3 | cut -d'.' -f1`
-  if [ $x -ne 3 ]; then
+  if [ "$x" -ne 3 ]; then
     echo -n "Not 3 seconds wall clock time (x=$x)"
     return 1
   fi
