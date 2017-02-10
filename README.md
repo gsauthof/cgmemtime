@@ -78,6 +78,45 @@ you can run the test suite:
 
     $ bash test.sh
 
+## FAQ
+
+### Why is the accumulated RSS sometimes lower than the child RSS?
+
+The thing is that the child number and the accumulated number
+basically come from different subsystems in the kernel - which
+apparently have slightly different trade-offs/approximations of
+the RSS of a process.
+
+A simple test case:
+
+    $ ./cgmemtime python -c 'import time; import os; print os.getpid(); time.sleep(300)'
+    24131
+    Child high-water RSS                    :       6296 KiB
+    Recursive and acc. high-water RSS+CACHE :       2724 KiB
+
+The first number is consistent to what GNU time (`/usr/bin/time`)
+reports.  With both GNU time/cgmemtime, the number doesn't come
+from the cgroups subsystem.
+
+You can also approximate it with [something
+like](http://unix.stackexchange.com/a/33388):
+
+    $ awk '/Rss:/{ sum += $2 } END { print sum }' /proc/24131/smaps
+    6388
+
+The 2nd number comes from the cgroups subsystem. You can
+approximate it via excluding some shared library mappings, e.g.:
+
+    $ grep '^[0-9a-f]\|Rss:' /proc/24131/smaps | tr -d '\n' \
+      | sed 's/ kB/ kB\n/g' | grep -v '.so' | sed 's/^.*Rss://' \
+      | awk '{a+=$1} END {print a}'
+    2760
+
+Hypothesis: cgroups doesn't account for the shared library
+mappings and the effect is easy to demonstrate with Python
+because it loads such a large amount of shared libraries.
+
+
 ## Contact
 
 Don't hesitate to mail feedback (comments, questions, ...) to:
