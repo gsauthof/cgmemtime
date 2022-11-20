@@ -1,5 +1,5 @@
 cgmemtime measures the high-water RSS+CACHE memory usage of a process
-and its descendant processes.
+and its descendant processes, using Linux Control Group v2.
 
 To be able to do so it puts the process into its own
 [cgroup][cg].
@@ -18,25 +18,16 @@ cgmemtime is the tool to answer such questions.
 
 (It also measures the runtime.)
 
-Date: 2013-08-23
+Last significant update: 2022-11-20
 
 ## Usage
 
-Before running cgmemtime the first time one has to setup a
-hierarchy under /sys/fs/cgroup:
-
-    $ sudo ./cgmemtime --setup -g myusergroup --perm 775
-
-Which creates by default:
-
-    /sys/fs/cgroup/memory/cgmemtime
-
 Now you can use cgmemtime like this:
 
-    $ ./cgmemtime ./testa x 10 20 30
+	$ ./cgmemtime ./testa x 10 20 30
     [..]
-    Child high-water RSS                    :      10720 KiB
-    Recursive and accumulated high-water RSS:      61824 KiB
+	child_RSS_high:      11808 KiB
+	group_mem_high:      62164 KiB
 
 Or to produce machine readable output:
 
@@ -44,19 +35,24 @@ Or to produce machine readable output:
 
 It also has some options (cf. `-h`).
 
+
 ## Dependencies
 
-cgmemtime runs on a Linux system that comes with [cgroups support][cg].
-For example Fedora 17 comes with cgroups (Control Groups)
-enabled by default.  Every system using [systemd][systemd] has
-cgroups support.
-
-For example Ubuntu 10.04 LTS does not have cgroups, but 12.04
-should have it. RHEL/CentOS should provide cgroups support since
-version 6.
+cgmemtime requires a Linux kernel with Control Group v2 support, including the
+`memory.peak` feature, that means Linux 5.19 or newer.
+For example, Fedora 37 works fine.
 
 Other than that you need a C compiler, GNU make and the usual
 development headers.
+
+By default, cgmemtime creates a temporary cgroup under the default systemd user
+service cgroup, which doesn't require any special setup or root privileges.  If
+you don't use systemd you can come up with a similar scheme and use the `-m`
+and `-c` options.
+
+See also older cgmemtime versions if you need one that supports
+Linux Control Group v1.
+
 
 ## Compile
 
@@ -67,32 +63,30 @@ Just:
 Which creates `cgmemtime` and `testa`. `testa` is a small forking
 allocation test program.
 
+
 ## Testing
 
-There is a shell script that contains some test cases. After
-setting up the cgroup hierachy via
-
-    $ sudo ./cgmemtime --setup -g myusergroup --perm 775
-
-you can run the test suite:
+You can run the test suite:
 
     $ bash test.sh
+
 
 ## FAQ
 
 ### Why is the accumulated RSS sometimes lower than the child RSS?
 
 The thing is that the child number and the accumulated number
-basically come from different subsystems in the kernel - which
-apparently have slightly different trade-offs/approximations of
+come from different subsystems in the kernel - which
+have slightly different trade-offs/approximations of
 the RSS of a process.
 
 A simple test case:
 
-    $ ./cgmemtime python -c 'import time; import os; print os.getpid(); time.sleep(300)'
-    24131
-    Child high-water RSS                    :       6296 KiB
-    Recursive and acc. high-water RSS+CACHE :       2724 KiB
+    $ ./cgmemtime python -c 'import time; import os; print(os.getpid()); time.sleep(300)'
+	35595
+    [..]
+	child_RSS_high:       9060 KiB
+	group_mem_high:       3860 KiB
 
 The first number is consistent to what GNU time (`/usr/bin/time`)
 reports.  With both GNU time/cgmemtime, the number doesn't come
@@ -104,7 +98,7 @@ like](http://unix.stackexchange.com/a/33388):
     $ awk '/Rss:/{ sum += $2 } END { print sum }' /proc/24131/smaps
     6388
 
-The 2nd number comes from the cgroups subsystem. You can
+The 2nd number comes from the cgroup subsystem. You can
 approximate it via excluding some shared library mappings, e.g.:
 
     $ grep '^[0-9a-f]\|Rss:' /proc/24131/smaps | tr -d '\n' \
@@ -112,7 +106,7 @@ approximate it via excluding some shared library mappings, e.g.:
       | awk '{a+=$1} END {print a}'
     2760
 
-Hypothesis: cgroups doesn't account for the shared library
+Hypothesis: Linux cgroup doesn't account for the shared library
 mappings and the effect is easy to demonstrate with Python
 because it loads such a large amount of shared libraries.
 
@@ -121,7 +115,7 @@ because it loads such a large amount of shared libraries.
 
 Don't hesitate to mail feedback (comments, questions, ...) to:
 
-    Georg Sauthoff <mail@georg.so>
+    Georg Sauthoff <mail@gms.tf>
 
 ## Licence
 
@@ -130,10 +124,12 @@ Don't hesitate to mail feedback (comments, questions, ...) to:
 ## Accuracy
 
 The reported high-water RSS+CACHE usage values are as accurate as the
-`usage_in_bytes` value exported by the cgroup memory resource
+[`memory.peak` value][peak] exported by the cgroup memory resource
 controller.
 
-The [kernel documentation][cgmem] states:
+The Control Group v2 documentation doesn't say much about its accuracy,
+but probably similar caveats apply as to the similar cgroup v1 measure,
+as detailed in kernel documentation:
 
 > For efficiency, as other kernel components, memory cgroup uses
 some optimization to avoid unnecessary cacheline false sharing.
@@ -143,99 +139,56 @@ access. (Of course, when necessary, it's synchronized.) If you
 want to know more exact memory usage, you should use
 RSS+CACHE(+SWAP) value in memory.stat(see 5.2).
 
-([Section 5.5][cgmem])
+([Section 5.5][https://elixir.bootlin.com/linux/v5.19/source/Documentation/admin-guide/cgroup-v1/memory.rst#L617])
 
 We can't use memory.stat because it does not include high-water
-memory usage information.
+memory usage information and we don't want to poll it.
 
 Doing some tests with e.g. `./testa` the reported values seem to
 be exact enough, though.
 
 ## Limitations
 
-The `usage_in_bytes` meassure reports the sum of RSS and CACHE
-usage.  Thus, you can't meassure the highwater RSS-without-CACHE
+The `memory.peak` measure reports the sum of RSS and CACHE
+usage.  Thus, you can't measure the high-water RSS-without-CACHE
 usage. In a program that does a lot of IO the CACHE part then
-dominates the highwater RSS+CACHE value.
+dominates the high-water RSS+CACHE value.
 
 For example:
 
     $ cgmemtime dd if=test.img | dd of=out
     # vs.
     $ cgmemtime dd if=test.img of=out
+    $ cgmemtime dd if=test.img of=out
 
 (for a large test.img the 2nd command has a large RSS+CACHE
-highwater value)
+high-water value, i.e. 2 times the `test.img` size or so - while the 3rd command
+yields a high-water usage of pretty much the test.img size, iff the input is
+still part of the buffer cache ...)
 
 Currently, I am not aware of a cgroup way to just derive the
-RSS-only highwater mark.
+RSS-only high-water mark.
 
-## Manually testing cgroups
-
-Setup new cgroup (as root):
-
-    # cgcreate -t juser:juser -g memory:/juser-cgroup
-
-No task should be part of that cgroup in the beginning:
-
-    $ cat /sys/fs/cgroup/memory/juser-cgroup/tasks
-
-Highwater RSS usage - should be 0:
-
-    $ cat /sys/fs/cgroup/memory/juser-cgroup/memory.max_usage_in_bytes
-
-Should report more accurate meassurements - but does not include highwater
-marks:
-
-    $ cat /sys/fs/cgroup/memory/juser-cgroup/memory.stat
-
-Current RSS usage in that group:
-
-    $ cat /sys/fs/cgroup/memory/juser-cgroup/memory.usage_in_bytes
-
-Add new task to the group:
-
-    $ cgexec -g memory:/juser-cgroup ./testa c 10 20 30 40
-
-Should report about 100 MiB (because ./testa forks 3 times and the processes
-allocate different amounts of memory, i.e.  10. 20, 30 and 40 MiBs - at the
-same time):
-
-    $ cat /sys/fs/cgroup/memory/juser-cgroup/memory.max_usage_in_bytes
-
-Resets the highwater mark:
-
-    # echo 0 > /sys/fs/cgroup/memory/juser-cgroup/memory.max_usage_in_bytes
-
-New reset value. It is not to exactly 0 - the [kernel documentation][cgmem]
-mentions fuzz due to optimaztions of `memory.usage_in_bytes`.
- 
-    $ cat /sys/fs/cgroup/memory/juser-cgroup/memory.max_usage_in_bytes
-
-And indeed, the above value should now equal this one:
-
-    $ cat /sys/fs/cgroup/memory/juser-cgroup/memory.usage_in_bytes
-
-Since the cgroups does not have any tasks now, we can use:
-
-    # echo 0 > /sys/fs/cgroup/memory/juser-cgroup/memory.force_empty
-
-Now the values should be both 0:
-
-    $ cat /sys/fs/cgroup/memory/juser-cgroup/memory.max_usage_in_bytes
-    $ cat /sys/fs/cgroup/memory/juser-cgroup/memory.usage_in_bytes
+FWIW, for some IO access patterns it makes sense to advise the kernel on how
+it should cache file data (cf. `madvise()` and  `posix_fadvise()`).
 
 
-To remove the cgroup again:
+## Implementation Details
 
-    # cgdelete memory:/juser-cgroup
+Cgmemtime uses modern Linux specific syscalls, including ones for
+which glibc lacks wrappers. Notably, is uses `clone3()` in order
+to directly spawn the child process into the fresh measurement
+cgroup and obtain its [PIDFD][pidfd]. While at it, it also
+specifies the vfork flag to avoid superfluous COW setup, since
+the child immediately execs a command.
+
+For waiting on the child and obtaining some usage attributes the
+extended Linux `waitid()` syscall is used. Besides obtaining the
+resource usage, the parent waits on the child through a
+[PIDFD][pidfd], which avoids any issues with recycled PIDs.
 
 
-Note that all the `cg*` commands can be replaces with combinations of
-`mkdir`/`chmod`/`chown`/`echo` commands that manipulate the filesystem under
-`/sys/fs/cgroup/memory/`.
-
-## Related tools
+## Related Work
 
 There are also other tools available which measure memory usage
 of processes. One way to categorize them is a two-fold
@@ -261,6 +214,10 @@ Groups for memory measurements.
   monitor mode that displays stats for all exiting processes. But
   the taskstats API is kind of cumbersome to use and on current
   kernels only accessible as root.
+- [dtmemtime][dtmt] - Dtrace Memtime, i.e. for Solaris built using Dtrace.
+  One could probably implement something similar, on Linux, using
+  bpftrace or even BPF directly, however, it would require root
+  privileges
 
 #### Snapshot measurements
 
@@ -275,7 +232,7 @@ Groups for memory measurements.
 
 ### Polling based tools
 
-- [memtime][memtime] - Uses polling of `/proc/$PID/stat` to
+- [memtime][memtime] ([mirror][memtime2]) - Uses polling of `/proc/$PID/stat` to
   measure high-water RSS/VMEM usage of a child. It supports Linux
   and Solaris styles of `/proc`.  Polling is in general a
   sub-optimal solution (e.g. short-running processes are not
@@ -300,15 +257,19 @@ Groups for memory measurements.
 
 
 [mib]: http://en.wikipedia.org/wiki/Mebibyte
-[cg]: http://www.kernel.org/doc/Documentation/cgroups/cgroups.txt
-[cgmem]: http://www.kernel.org/doc/Documentation/cgroups/memory.txt
+[cg]: https://docs.kernel.org/admin-guide/cgroup-v2.html
+[cgmem]: https://docs.kernel.org/admin-guide/cgroup-v2.html#memory
 [systemd]: http://en.wikipedia.org/wiki/Systemd
 [rss]: http://en.wikipedia.org/wiki/Resident_set_size
 [gpl]: http://www.gnu.org/licenses/gpl.html
 [gtime]: http://www.gnu.org/software/time/
 [tstime]: https://bitbucket.org/gsauthof/tstime
 [memtime]: http://www.update.uu.se/~johanb/memtime/
+[memtime2]: https://github.com/phuseman/memtime
 [tmem]: http://locklessinc.com/articles/memory_usage/
 [smem]: http://www.selenic.com/smem/
 [memusg]: https://github.com/jhclark/memusg
+[peak]: https://elixir.bootlin.com/linux/v5.19/source/Documentation/admin-guide/cgroup-v2.rst#L1232
+[dtmt]: https://github.com/gsauthof/utility/#dtmemtime
+[pidfd]: https://lwn.net/Articles/801319/
 

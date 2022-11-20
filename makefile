@@ -1,5 +1,13 @@
 
-CFLAGS = -g -std=gnu11 -Wall -Wno-missing-braces
+CFLAGSW_GCC = -Wall -Wextra -Wno-missing-field-initializers \
+    -Wno-missing-braces \
+    -Wmissing-prototypes -Wfloat-equal \
+    -Wwrite-strings -Wpointer-arith -Wcast-align \
+    -Wnull-dereference \
+    -Werror=multichar -Werror=sizeof-pointer-memaccess -Werror=return-type \
+    -fstrict-aliasing
+
+CFLAGS = -g -Og $(CFLAGSW_GCC)
 
 
 EXEC = cgmemtime testa
