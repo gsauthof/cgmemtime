@@ -4,15 +4,16 @@ and its descendant processes, using Linux Control Group v2.
 To be able to do so it puts the process into its own
 [cgroup][cg].
 
-For example process A allocates 10 [MiB][mib] and forks a child B that
+For example, process A allocates 10 [MiB][mib] and forks a child B that
 allocates 20 MiB and that forks a child C that allocates 30 MiB.
 All three processes share a time window where their allocations
-result in corresponding [RSS (resident set size)][rss] memory usage.
+result in a certain aggregate [RSS (resident set size)][rss] memory usage.
 
 The question now is: How much memory is actually used as a result
 of running A?
 
-Answer: 60 MiB
+Answer: 60 MiB (assuming that A and B are still running when C
+allocates its memory)
 
 cgmemtime is the tool to answer such questions.
 
@@ -139,7 +140,7 @@ access. (Of course, when necessary, it's synchronized.) If you
 want to know more exact memory usage, you should use
 RSS+CACHE(+SWAP) value in memory.stat(see 5.2).
 
-([Section 5.5][https://elixir.bootlin.com/linux/v5.19/source/Documentation/admin-guide/cgroup-v1/memory.rst#L617])
+([Section 5.5](https://elixir.bootlin.com/linux/v5.19/source/Documentation/admin-guide/cgroup-v1/memory.rst#L617))
 
 We can't use memory.stat because it does not include high-water
 memory usage information and we don't want to poll it.
