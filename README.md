@@ -186,7 +186,10 @@ the child immediately execs a command.
 For waiting on the child and obtaining some usage attributes the
 extended Linux `waitid()` syscall is used. Besides obtaining the
 resource usage, the parent waits on the child through a
-[PIDFD][pidfd], which avoids any issues with recycled PIDs.
+[PIDFD][pidfd], because it's possible. Note that waiting on
+the child's PID is as good here, since a terminating child stays
+around as zombie after it terminates such that its PID can't be
+recycled and a process only can wait on its child, anyways.
 
 
 ## Related Work
