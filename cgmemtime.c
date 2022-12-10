@@ -18,7 +18,11 @@
 #include <string.h>
 #include <sys/stat.h>     // mkdirat(), ...
 #include <sys/syscall.h>  // SYS_*, ...
-#include <sys/wait.h>     // waitid(), ...
+#if __GLIBC__ == 2 && __GLIBC_MINOR__ < 36
+    #include <linux/wait.h>   // waitid macros, ...
+#else
+    #include <sys/wait.h>     // waitid macros, ...
+#endif
 #include <time.h>         // clock_gettime(), ...
 #include <unistd.h>       // getopt(), ...
 
@@ -142,6 +146,43 @@ static int add_memory_controller(int cg_fd, const Args *args)
         return -4;
     }
     return 0;
+}
+
+static int check_cgroupfs(const Args *args)
+{
+    char *fn = 0;
+    if (asprintf(&fn, "%s/cgroup.subtree_control", args->cg_fs_dir) == -1) {
+        fprintf(stderr, "can't allocate cgroup.subtree_control string\n");
+        return -1;
+    }
+    int r = 0;
+    int fd = open(fn, O_RDONLY);
+    if (fd == -1) {
+        fprintf(stderr, "Can't open %s (errno: %d - %s)\n",
+                fn, errno, strerrorname_np(errno));
+        r = -2;
+        goto error;
+    }
+    char buf[1024] = {0};
+    ssize_t l = read(fd, buf, sizeof buf - 1);
+    if (l == -1) {
+        fprintf(stderr, "Can't read %s (errno: %d - %s)\n",
+                fn, errno, strerrorname_np(errno));
+        r = -3;
+        goto error;
+    }
+    const char *p = strstr(buf, "memory");
+    if (!p || !(p[6] == 0 || p[6] == ' ')) {
+        fprintf(stderr, "Cgroup memory controller isn't enabled in %s"
+                " (systemd should enable it, by default)\n", fn);
+        r = -23;
+        goto error;
+    }
+error:
+    if (fd != -1)
+        close(fd);
+    free(fn);
+    return r;
 }
 
 static int setup_cgroup(const Args *args, int *ofd)
@@ -281,18 +322,18 @@ static int read_cg_rss_high(int cg_fd, size_t *rss)
 {
     int fd = openat(cg_fd, "memory.peak", O_RDONLY);
     if (fd == -1) {
-        fprintf(stderr, "Can't open memoery.peak: %d - %s\n", errno, strerrorname_np(errno));
+        fprintf(stderr, "Can't open memory.peak: %d - %s\n", errno, strerrorname_np(errno));
         return -1;
     }
     char b[21] = {0};
     ssize_t l = read(fd, b, sizeof b - 1);
     if (l == -1) {
-        fprintf(stderr, "Can't read memoery.peak: %d - %s\n", errno, strerrorname_np(errno));
+        fprintf(stderr, "Can't read memory.peak: %d - %s\n", errno, strerrorname_np(errno));
         close(fd);
         return -2;
     }
     if (close(fd) == -1) {
-        fprintf(stderr, "Can't close memoery.peak: %d - %s\n", errno, strerrorname_np(errno));
+        fprintf(stderr, "Can't close memory.peak: %d - %s\n", errno, strerrorname_np(errno));
         return -3;
     }
     *rss = atol(b);
@@ -390,19 +431,23 @@ int main(int argc, char **argv)
     Args args = {0};
     parse_args(argc, argv, &args);
 
+    if (check_cgroupfs(&args)) {
+        return 124;
+    }
+
     int cgp_fd = -1;
     int cg_fd = setup_cgroup(&args, &cgp_fd);
     if (cg_fd < 0)
-        return 154;
+        return 123;
 
     Result res = {0};
     int r = execute(&args, cg_fd, &res);
     print_result(stderr, &args, &res);
 
     if (teardown_cgroup(&args, cgp_fd, cg_fd))
-        return 153;
+        return 122;
 
     if (r < 0)
-        return 152;
+        return 121;
     return r;
 }
