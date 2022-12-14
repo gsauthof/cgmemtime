@@ -147,11 +147,11 @@ static int add_memory_controller(int cg_fd, const Args *args)
     return 0;
 }
 
-static int check_cgroupfs(const Args *args)
+static int check_cgroupfs_memory(const Args *args, const char *filename, const char *verb, const char *hint)
 {
     char *fn = 0;
-    if (asprintf(&fn, "%s/cgroup.subtree_control", args->cg_fs_dir) == -1) {
-        fprintf(stderr, "can't allocate cgroup.subtree_control string\n");
+    if (asprintf(&fn, "%s/%s", args->cg_fs_dir, filename) == -1) {
+        fprintf(stderr, "can't allocate %s string\n", filename);
         return -1;
     }
     int r = 0;
@@ -172,8 +172,8 @@ static int check_cgroupfs(const Args *args)
     }
     const char *p = strstr(buf, "memory");
     if (!p || !(p[6] == 0 || p[6] == ' ')) {
-        fprintf(stderr, "Cgroup memory controller isn't enabled in %s"
-                " (systemd should enable it, by default)\n", fn);
+        fprintf(stderr, "Cgroup memory controller isn't %s in %s"
+                " (%s)\n", verb, fn, hint);
         r = -23;
         goto error;
     }
@@ -181,6 +181,15 @@ error:
     if (fd != -1)
         close(fd);
     free(fn);
+    return r;
+}
+
+static int check_cgroupfs(const Args *args)
+{
+    int r = check_cgroupfs_memory(args, "cgroup.controllers", "available", "perhaps disable via kernel parameter?");
+    if (r)
+        return r;
+    r = check_cgroupfs_memory(args, "cgroup.subtree_control", "enabled", "systemd should enable it, by default");
     return r;
 }
 
@@ -321,7 +330,8 @@ static int read_cg_rss_high(int cg_fd, size_t *rss)
 {
     int fd = openat(cg_fd, "memory.peak", O_RDONLY);
     if (fd == -1) {
-        fprintf(stderr, "Can't open memory.peak: %d - %s\n", errno, strerrorname_np(errno));
+        fprintf(stderr, "Can't open memory.peak (requires Kernel 5.19 or later): %d - %s\n",
+                errno, strerrorname_np(errno));
         return -1;
     }
     char b[21] = {0};
