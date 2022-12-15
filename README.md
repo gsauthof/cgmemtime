@@ -41,10 +41,17 @@ It also has some options (cf. `-h`).
 
 cgmemtime requires a Linux kernel with Control Group v2 support, including the
 `memory.peak` feature, that means Linux 5.19 or newer.
-For example, Fedora 37 works fine.
+For example, Fedora 36 and 37 work fine.
 
 Other than that you need a C compiler, GNU make and the usual
 development headers.
+
+Enterprise Linux distributions might backport `memory.peak` to their
+nominally 'frozen' and lower versioned kernels.
+However, as of December, 2022, RHEL 9.1 (with
+5.14.0-162.6.1.el9_1.x86_64) and Ubuntu 22.04.1 (with their 5.15
+kernel) don't support it. FWIW, cgmemtime works on Ubuntu 22.04.1
+when running their 6.0 'oem' Kernel.
 
 By default, cgmemtime creates a temporary cgroup under the default systemd user
 service cgroup, which doesn't require any special setup or root privileges.  If
