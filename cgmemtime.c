@@ -46,6 +46,7 @@ struct Args {
     char **child_argv;
     bool machine_readable;
     char delim;
+    bool no_systemd_run;
 };
 typedef struct Args Args;
 static void help(FILE *o, const char *argv0)
@@ -57,9 +58,10 @@ static void help(FILE *o, const char *argv0)
             "    -h            Display this help text\n"
             "    -m CGFS       Cgroup v2 base (default: /sys/fs/cgroup)\n"
             "    -c BASE_DIR   Cgroup directory, must end in XXXXXX\n"
-            "                  (default: $CGFS/user.slice/user-$UID.slice/user@$UID.service/$RANDOM)\n"
+            "                  (default: $CGFS/user.slice/user-$UID.slice/user@$UID.service/cgmt-$RANDOM)\n"
             "    -t            machine readable output (delimited columns)\n"
             "    -d CHAR       column delimiter (default: ';')\n"
+            "    -Z            disable falling back to systemd-run\n"
             "\n"
             "2022, Georg Sauthoff, GPLv3+\n"
             "\n"
@@ -77,7 +79,7 @@ static void parse_args(int argc, char **argv, Args *args)
     // '-' prefix: no reordering of arguments, non-option (positional) arguments are
     // returned as argument to the 1 option
     // ':': preceding option takes a mandatory argument
-    while (!found_cmd && (c = getopt(argc, argv, "-c:d:m:ht")) != -1) { 
+    while (!found_cmd && (c = getopt(argc, argv, "-c:d:m:htZ")) != -1) {
         switch (c) {
             case 1:
                 found_cmd = true;
@@ -102,6 +104,8 @@ static void parse_args(int argc, char **argv, Args *args)
             case 't':
                 args->machine_readable = true;
                 break;
+            case 'Z':
+                args->no_systemd_run = true;
         }
     }
     if (!found_cmd) {
@@ -110,13 +114,67 @@ static void parse_args(int argc, char **argv, Args *args)
     }
     int i = optind - 1;
     args->child_argv = argv + i;
+}
 
-    size_t uid = getuid();
-    if (asprintf(&args->cg_dir, "%s/user.slice/user-%zu.slice/user@%zu.service/cgmt-XXXXXX",
-            args->cg_fs_dir, uid, uid) == -1) {
-        fprintf(stderr, "couldn't allocate cg string\n");
-        exit(125);
+static int current_cgroup(char *s, size_t n, const char **dest, size_t *dest_n)
+{
+    int fd = open("/proc/self/cgroup", O_RDONLY);
+    if (fd == -1) {
+        fprintf(stderr, "Can't open /proc/self/cgroup (errno: %d - %s)\n",
+                errno, strerrorname_np(errno));
+        return -1;
     }
+    ssize_t l = read(fd, s, n - 1);
+    if (l == -1) {
+        fprintf(stderr, "Can't read /proc/self/cgroup (errno: %d - %s)\n",
+                errno, strerrorname_np(errno));
+        close(fd);
+        return -2;
+    }
+    if (!l) {
+        fprintf(stderr, "Read nothing from /proc/self/cgroup\n");
+        return -3;
+    }
+    --l;
+    s[l] = 0;
+    if (close(fd) == -1) {
+        fprintf(stderr, "Can't close /proc/self/cgroup (errno: %d - %s)\n",
+                errno, strerrorname_np(errno));
+        return -4;
+    }
+    char *p = memchr(s, '/', l);
+    if (!p) {
+        fprintf(stderr, "Cgroup %s doesn't contain a slash\n", s);
+        return -5;
+    }
+    *dest = p;
+    *dest_n = l - (p - s);
+    return 0;
+}
+
+static int search_cgroup_dir(const char *cg_fs_dir, char **dir)
+{
+    size_t a = strlen(cg_fs_dir);
+    char buf[1024] = {0};
+    const char *d = 0;
+    size_t n = 0;
+    if (current_cgroup(buf, sizeof buf, &d, &n))
+        return -1;
+    char *p = memmem(d, n, ".service", 8);
+    if (!p) {
+        return 1;
+    }
+    p[8] = 0;
+    size_t b = (p + 8 - d);
+    size_t m = a + b + 12 + 1;
+    char *t = calloc(m, 1);
+    if (!t) {
+        fprintf(stderr, "Couldn't alloc cgroup directory string\n");
+        return -2;
+    }
+    memcpy(mempcpy(mempcpy(t, cg_fs_dir, a), d, b), "/cgmt-XXXXXX", 12);
+    *dir = t;
+    return 0;
 }
 
 static int add_memory_controller(int cg_fd, const Args *args)
@@ -435,6 +493,70 @@ static int teardown_cgroup(const Args *args, int cgp_fd, int cg_fd)
     return 0;
 }
 
+// The reexec is done in cases where the user's session doesn't run
+// under something like /sys/fs/cgroup/.../user@$UID.service/...,
+// e.g. when being logged in via ssh.
+// In that case the process in a cgroup such as /user.slice/user-1000.slice/session-46.scope
+// for which user 1000 doesn't have write permissions on cgroup.procs.
+// Since /user.slice/user-$UID.slice/user@$UID.service/cgroup.procs usually
+// is set up with write permissions we need to move the process to it because
+// of the Cgroup v2 'Cgroup delegation containment rules' (cf. cgroups(7)), especially:
+//
+// > The writer has write permission on the cgroup.procs file in the nearest
+// > common ancestor of the source  and  destination cgroups.
+//
+// Because systemd-run runs the process under /user.slice/user-1000.slice/user@1000.service/app.slice/run-$RANDOM.scope (with privilleged help) we can follow that rule again (without extra privilleges).
+//
+// NB: A Wayland/X11 terminal already runs under .../user@UID.service/... such that
+//     there is no need to reexec like that.
+//
+// See also: https://github.com/systemd/systemd/issues/3388
+static int reexec_with_systemd_run(int argc, char **argv)
+{
+    char **new_argv = calloc(argc + 5 + 1, sizeof new_argv[0]);
+    if (!new_argv) {
+        fprintf(stderr, "Can't allocate new argv\n");
+        return -1;
+    }
+    new_argv[0] = strdup("systemd-run");
+    if (!new_argv[0]) {
+        fprintf(stderr, "Can't allocate new argv[0]\n");
+        return -2;
+    }
+    new_argv[1] = strdup("--user");
+    if (!new_argv[1]) {
+        fprintf(stderr, "Can't allocate new argv[1]\n");
+        return -3;
+    }
+    new_argv[2] = strdup("--scope");
+    if (!new_argv[2]) {
+        fprintf(stderr, "Can't allocate new argv[2]\n");
+        return -4;
+    }
+    new_argv[3] = strdup("--quiet");
+    if (!new_argv[3]) {
+        fprintf(stderr, "Can't allocate new argv[3]\n");
+        return -5;
+    }
+    new_argv[4] = argv[0];
+    new_argv[5] = strdup("-Z");
+    if (!new_argv[5]) {
+        fprintf(stderr, "Can't allocate new argv[5]\n");
+        return -6;
+    }
+    for (int i = 1; i < argc; ++i)
+        new_argv[5 + i] = argv[i];
+    execvp(new_argv[0], new_argv);
+    fprintf(stderr, "execvp failed: %d - %s\n", errno, strerrorname_np(errno));
+    if (errno == ENOENT) {
+        fprintf(stderr, "Couldn't find systemd-run\n");
+        return -7;
+    }
+    fprintf(stderr, "Execing with stemd-run failed (errno: %d - %s)\n",
+            errno, strerrorname_np(errno));
+    return -8;
+}
+
 int main(int argc, char **argv)
 {
     Args args = {0};
@@ -442,6 +564,21 @@ int main(int argc, char **argv)
 
     if (check_cgroupfs(&args)) {
         return 124;
+    }
+
+    if (!args.cg_dir) {
+        int r = search_cgroup_dir(args.cg_fs_dir, &args.cg_dir);
+        if (r < 0)
+            return 120;
+        if (r == 1) {
+            if (args.no_systemd_run) {
+                fprintf(stderr, "Couldn't find user@$UID.service cgroup - cf. -c option\n");
+                return 119;
+            } else {
+                if (reexec_with_systemd_run(argc, argv))
+                    return 118;
+            }
+        }
     }
 
     int cgp_fd = -1;
