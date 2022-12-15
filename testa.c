@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 
-void fill_some(size_t n, char ch)
+static void fill_some(size_t n, char ch)
 {
   size_t bytes = n * (size_t) 1024 * (size_t) 1024;
   char *b = malloc(bytes);
