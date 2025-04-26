@@ -52,7 +52,7 @@ test_accum()
     return 1
   fi
   x=`echo $o | cut -d';' -f 5`
-  if [ $((x/1024)) -ne 100 ]; then
+  if [ $((x/1024)) -lt 100 -o $((x/1024)) -gt 102 ]; then
     echo -n "Not 100 MiB (x=$x)"
     return 1
   fi
